@@ -2,6 +2,7 @@ import os
 import logging
 from app.services.github_service import GitHubService
 from app.services.pdf_service import PDFService
+from app.services.scraping_service import ScrapingService # <-- Import new service
 from app.services.vector_store.vector_store_service import VectorStoreService
 from app.config import Config
 
@@ -30,6 +31,7 @@ def run_data_pipeline(reindex: bool = False):
     try:
         github_service = GitHubService(Config.GITHUB_PAT)
         pdf_service = PDFService(Config.RESUME_URL)
+        scraping_service = ScrapingService(Config.WEBSITE_URL) # <-- Initialize new service
         vector_store = VectorStoreService()
     except Exception as e:
         logger.error(f"Error initializing services: {e}", exc_info=True)
@@ -42,10 +44,13 @@ def run_data_pipeline(reindex: bool = False):
             logger.info("Fetching data from all sources...")
             github_data = github_service.fetch_all_detailed_repos()
             pdf_text = pdf_service.process_pdf()
+            website_text = scraping_service.crawl_website() # <-- Fetch website data
             logger.info("Data fetching complete.")
 
             # --- Data Processing and Chunking ---
             all_text_data = []
+            
+            # Process GitHub Data
             logger.info("Processing and chunking GitHub data...")
             for repo in github_data:
                 repo_text = (
@@ -60,10 +65,18 @@ def run_data_pipeline(reindex: bool = False):
                     all_text_data.extend(_chunk_text(repo_text))
             logger.info("GitHub data processed.")
 
+            # Process PDF Resume Data
             logger.info("Processing and chunking PDF resume data...")
             if pdf_text and pdf_text.strip():
                 all_text_data.extend(_chunk_text(pdf_text))
             logger.info("PDF resume data processed.")
+
+            # Process Scraped Website Data
+            logger.info("Processing and chunking scraped website data...")
+            if website_text and website_text.strip():
+                all_text_data.extend(_chunk_text(website_text))
+            logger.info("Scraped website data processed.")
+
 
             # --- Vector Index Creation ---
             if all_text_data:
