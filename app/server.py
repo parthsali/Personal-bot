@@ -1,14 +1,15 @@
 import os
 import sys
-import uuid
+import re
+import logging # <-- Import logging
 from fastapi import FastAPI, Request, HTTPException, Security, BackgroundTasks
 from fastapi.security import APIKeyHeader
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
-import logging
 
 # --- Project Root Setup ---
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,18 +19,32 @@ if project_root not in sys.path:
 from app.config import Config
 from app.services.bot_service import BotService
 
-# --- Initialize Services ---
+# --- Initialize Config FIRST ---
 Config.initialize_paths(project_root)
+
+# --- Logging Configuration ---
+# This is the new, correct location for the logging setup.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        # Use Config.LOG_FILE and mode 'a' to append to the log file
+        logging.FileHandler(Config.LOG_FILE, mode='a') 
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# --- Initialize Services ---
 Config.validate()
 bot_service = BotService(Config)
 
 # --- FastAPI App Setup ---
-limiter = Limiter(key_func=get_remote_address, default_limits=["20/minute"])
 app = FastAPI(title="Personal AI Assistant API")
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-logger = logging.getLogger(__name__)
 
 # --- Security Setup ---
 api_key_header = APIKeyHeader(name="X-Update-Token", auto_error=True)
@@ -46,6 +61,27 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
+# --- Log Parsing Function ---
+def parse_log_file():
+    """Parses the application log file and returns a list of log entries."""
+    logs = []
+    log_pattern = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - ([\w.]+) - (\w+) - (.+)")
+    try:
+        with open(Config.LOG_FILE, 'r') as f:
+            for line in f:
+                match = log_pattern.match(line)
+                if match:
+                    logs.append({
+                        "timestamp": match.group(1),
+                        "module": match.group(2),
+                        "level": match.group(3),
+                        "message": match.group(4)
+                    })
+    except FileNotFoundError:
+        logger.warning("Log file not found. It will be created upon first log event.")
+    return sorted(logs, key=lambda x: x['timestamp'], reverse=True)
+
+
 # --- API Endpoints ---
 @app.on_event("startup")
 async def startup_event():
@@ -58,10 +94,7 @@ async def startup_event():
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
 async def chat_with_bot(request: Request, chat_request: ChatRequest):
-    """
-    The main endpoint to chat with the AI assistant.
-    Automatically maintains conversation history based on the user's IP address.
-    """
+    """The main endpoint to chat with the AI assistant."""
     try:
         session_id = get_remote_address(request)
         if not session_id:
@@ -75,17 +108,22 @@ async def chat_with_bot(request: Request, chat_request: ChatRequest):
         logger.error(f"An error occurred while processing chat request: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal server error occurred.")
 
+
 @app.post("/update-context", status_code=202)
 async def update_context(background_tasks: BackgroundTasks, api_key: str = Security(get_api_key)):
-    """
-    Triggers a full data pipeline refresh in the background.
-    This will re-scrape GitHub, the resume PDF, and the website.
-    This is a protected endpoint and requires a valid 'X-Update-Token' in the header.
-    """
-    logger.info("Received request to update context. Starting data pipeline in the background.")
-    # Add the long-running task to the background
+    """Triggers a full data pipeline refresh in the background."""
+    logger.info("Received authenticated request to update context.")
     background_tasks.add_task(bot_service.setup_data, reindex=True)
-    return {"message": "Context update initiated. The process is running in the background and may take a few minutes."}
+    logger.info("Context update successfully initiated in the background.")
+    return {"message": "Context update initiated. The process is running in the background."}
+
+
+@app.get("/logs", response_class=HTMLResponse)
+async def view_logs(request: Request):
+    """Displays the application logs in a formatted HTML table."""
+    logger.info(f"Log page accessed by {request.client.host}")
+    logs = parse_log_file()
+    return templates.TemplateResponse("logs.html", {"request": request, "logs": logs})
 
 
 @app.get("/health", response_model=dict)

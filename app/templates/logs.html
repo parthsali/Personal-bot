@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Logs</title>
+    <style>
+        body {
+            font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #4ec9b0;
+            border-bottom: 2px solid #4ec9b0;
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            table-layout: fixed;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 12px;
+            text-align: left;
+            word-wrap: break-word;
+        }
+        th {
+            background-color: #2a2d2e;
+            color: #c5c8c6;
+        }
+        tr:nth-child(even) {
+            background-color: #252526;
+        }
+        .log-level {
+            font-weight: bold;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: #fff;
+            text-align: center;
+        }
+        .log-level-info { background-color: #569cd6; }
+        .log-level-warning { background-color: #cd9731; }
+        .log-level-error { background-color: #f44747; }
+        .log-level-critical { background-color: #c52323; }
+        .log-level-debug { background-color: #b5cea8; }
+    </style>
+</head>
+<body>
+    <h1>Application Activity Log</h1>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 180px;">Timestamp</th>
+                <th style="width: 150px;">Module</th>
+                <th style="width: 100px;">Level</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.timestamp }}</td>
+                <td>{{ log.module }}</td>
+                <td><span class="log-level log-level-{{ log.level.lower() }}">{{ log.level }}</span></td>
+                <td>{{ log.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
